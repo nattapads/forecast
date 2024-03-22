@@ -68,11 +68,11 @@ else
 // Calculate the standard deviation of the percent change
 dailyPercentVolRecent       = math.round(array.stdev(percentChange, false), 6)
 
-// Calculate 8-year (2000 Records) average of SDs (for Exponential SD only)
+// Calculate 8-year (2560 Records) average of SDs (for Exponential SD only)
 return8Yr                   = array.new_float(0)
 
 if useExpoStd == true
-    for i = 0 to 2000
+    for i = 0 to 2560
         array.push(return8Yr, dailyPercentVolRecent[i])
 
 dailyPercentVol8Yr          = array.avg(return8Yr)
