@@ -46,7 +46,6 @@ lowerForeCap                = input.int(-20,        title = "Lower Forecast Cap"
 minForeCapped               = input(0.1,            title = "Minimun Forecast", group="Risk Settings")
 maxForeCapped               = input(2.0,            title = "Maximum Forecast", group="Risk Settings")
 useExpoStd                  = input(true,           title = "Use Exponential Standard Deviation", group="Risk Settings")
-useMarginAcc                = input(false,          title = "Margin Account", group="Risk Settings")
 
 //-----------------------------------------------------------------------------{
 //Instrument Risk Calculation
