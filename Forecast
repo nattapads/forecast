@@ -1,0 +1,292 @@
+//NSal
+//@version=5
+indicator("[STR] Forecast Divergent & Convergent [6395]", overlay = true)
+
+//-----------------------------------------------------------------------------}
+//Momentum  Settings
+//-----------------------------------------------------------------------------{
+moProp                      = input.float(0.20,     maxval = 1.00, step = 0.1, title = "Momentum Weight (%)", group="Momentum Settings")
+rapidMoScalar               = input.float(5.95,     step = 0.01, title = "EMA 8 Scalar", group = "Momentum Settings")
+fastMoScalar                = input.float(4.10,     step = 0.01, title = "EMA 16 Scalar", group = "Momentum Settings")
+mediumMoScalar              = input.float(2.79,     step = 0.01, title = "EMA 32 Scalar", group = "Momentum Settings")
+slowMoScalar                = input.float(1.91,     step = 0.01, title = "EMA 64 Scalar", group = "Momentum Settings")
+zeroLag                     = input(false,          title ="Acceleration-Adjusted Momentum", group = "Momentum Settings")
+
+//-----------------------------------------------------------------------------}
+//Acceleration Settings
+//-----------------------------------------------------------------------------{
+acProp                      = input.float(0.20,     maxval = 1.00, step = 0.1, title = "Acceleration Weight (%)", group = "Acceleration Settings")
+acFastScalar                = input.float(1.90,     step = 0.01, title = "EMA 16 Acceleration Scalar", group = "Acceleration Settings")
+acMediumScalar              = input.float(1.98,     step = 0.01, title = "EMA 32 Acceleration Scalar", group = "Acceleration Settings")
+acSlowScalar                = input.float(2.05,     step = 0.01, title = "EMA 64 Acceleration Scalar", group = "Acceleration Settings")
+
+//-----------------------------------------------------------------------------}
+//Breakout  Settings
+//-----------------------------------------------------------------------------{
+boProp                      = input.float(0.20,     maxval = 1.00, step = 0.1, title = "Breakout Weight (%)", group = "Breakout Settings")
+bo20Scalar                  = input.float(0.67,     step = 0.01, title = "Breakout 20 Scalar", group = "Breakout Settings")
+bo40Scalar                  = input.float(0.70,     step = 0.01, title = "Breakout 40 Scalar", group = "Breakout Settings")
+bo80Scalar                  = input.float(0.73,     step = 0.01, title = "Breakout 80 Scalar", group = "Breakout Settings")
+
+//-----------------------------------------------------------------------------}
+//Carry Settings
+//-----------------------------------------------------------------------------{
+crProp                      = input.float(0.40,     maxval = 1.00, step = 0.1, title = "Carry Weight (%)", group="Carry Settings", tooltip = "Higher proportion causes higher percent risk")
+expectedDiv                 = input.float(0.030,    maxval = 0.99, step = 0.001, title = "Expected Annualised Return (%)", group="Carry Settings", tooltip = "Expacted dividend yield or Median dividend yield")
+crScalar                    = input.int(30,         step = 1, title = "Carry Scalar", group = "Carry Settings")
+
+//-----------------------------------------------------------------------------}
+//Risk Settings
+//-----------------------------------------------------------------------------{
+simpleStdLength             = input.int(22,         title = "Simple SD Length", group="Risk Settings")
+expoStdLength               = input.int(32,         title = "Exponential SD Length", group="Risk Settings")
+forcastDiverMuliplier       = input.float(1.39,     step = 0.01, title = "Forecast Diversification Multiplier", group = "Risk Settings")
+upperForeCap                = input.int(20,         title = "Upper Forecast Cap", group="Risk Settings")
+lowerForeCap                = input.int(-20,        title = "Lower Forecast Cap", group="Risk Settings")
+minForeCapped               = input(0.1,            title = "Minimun Forecast", group="Risk Settings")
+maxForeCapped               = input(2.0,            title = "Maximum Forecast", group="Risk Settings")
+useExpoStd                  = input(true,           title = "Use Exponential Standard Deviation", group="Risk Settings")
+useMarginAcc                = input(false,          title = "Margin Account", group="Risk Settings")
+
+//-----------------------------------------------------------------------------{
+//Instrument Risk Calculation
+//-----------------------------------------------------------------------------{
+percentChange               = array.new_float(0)
+returnChange                = close
+lamda                       = 2.0 / (expoStdLength + 1.0)
+
+// Loop through the last price change and add them to the array
+if useExpoStd == true
+    for i = 0 to expoStdLength
+        returnChange        = (returnChange[i] - returnChange[i+1]) / returnChange[i+1]
+        LambaWeight         = math.pow((1 - lamda), i)
+        array.push(percentChange, (returnChange * LambaWeight))
+else
+    for i = 0 to simpleStdLength
+        returnChange        = (returnChange[i] - returnChange[i+1]) / returnChange[i+1]
+        array.push(percentChange, returnChange)
+
+// Calculate the standard deviation of the percent change
+dailyPercentVolRecent       = math.round(array.stdev(percentChange, false), 6)
+
+// Calculate 8-year (2000 Records) average of SDs (for Exponential SD only)
+return8Yr                   = array.new_float(0)
+
+if useExpoStd == true
+    for i = 0 to 2000
+        array.push(return8Yr, dailyPercentVolRecent[i])
+
+dailyPercentVol8Yr          = array.avg(return8Yr)
+
+// Annualising Instrument Risk
+dailyPercentVol             = useExpoStd ? ((0.3 * dailyPercentVol8Yr) + (0.7 * dailyPercentVolRecent)) : dailyPercentVolRecent
+instRisk                    = math.round((dailyPercentVol * 16), 6)
+dailyPriceVol               = dailyPercentVol * close
+
+//-----------------------------------------------------------------------------}
+//Momentum Calculation
+//-----------------------------------------------------------------------------{
+momentumForcCal(length, multiplier) =>
+    EmaLength               = length * multiplier
+
+    if zeroLag == true
+        Ema                 = ta.ema(close, EmaLength)
+        smoEma              = ta.ema(Ema, EmaLength)
+        eq                  = Ema - smoEma
+        zlEma               = Ema + eq
+    else
+        zlEma               = ta.ema(close, EmaLength)
+
+rapidMoLength               = 8
+fastMoLength                = 16
+mediumMoLength              = 32
+slowMoLength                = 64
+
+rapidEma                    = momentumForcCal(rapidMoLength, 1)
+rapidSEma                   = momentumForcCal(rapidMoLength, 4)
+fastEma                     = momentumForcCal(fastMoLength, 1)
+fastSEma                    = momentumForcCal(fastMoLength, 4)
+mediumEma                   = momentumForcCal(mediumMoLength, 1)
+mediumSEma                  = momentumForcCal(mediumMoLength, 4)
+slowEma                     = momentumForcCal(slowMoLength, 1)
+slowSEma                    = momentumForcCal(slowMoLength, 4)
+
+//-----------------------------------------------------------------------------}
+//Momentum Forcast Calculation
+//-----------------------------------------------------------------------------{
+//Scale Momentum Forecast
+//-----------------------------------------------------------------------------{
+scalForecastMo(fastEma, slowEma, volatility, scalar) =>
+    riskAdjusted            = (fastEma - slowEma) / volatility
+    scaledForecast          = riskAdjusted * scalar
+
+scaledForcR                 = scalForecastMo(rapidEma, rapidSEma, dailyPriceVol, rapidMoScalar)
+scaledForcF                 = scalForecastMo(fastEma, fastSEma, dailyPriceVol, fastMoScalar)
+scaledForcM                 = scalForecastMo(mediumEma, mediumSEma, dailyPriceVol, mediumMoScalar)
+scaledForcS                 = scalForecastMo(slowEma, slowSEma, dailyPriceVol, slowMoScalar)
+
+//Capped Momentum Forecast
+//-----------------------------------------------------------------------------{
+capForecastMo(scaledForc) =>
+    var float cappedForcMo  = na
+
+    if scaledForc <= lowerForeCap
+        cappedForcMo        := lowerForeCap
+    else if scaledForc > lowerForeCap and scaledForc < upperForeCap
+        cappedForcMo        := scaledForc
+    else if scaledForc >= upperForeCap
+        cappedForcMo        := upperForeCap
+
+cappedForcR                 = capForecastMo(scaledForcR)
+cappedForcF                 = capForecastMo(scaledForcF)
+cappedForcM                 = capForecastMo(scaledForcM)
+cappedForcS                 = capForecastMo(scaledForcS)
+
+cappedForcMoAr              = array.from(cappedForcR, cappedForcF, cappedForcM, cappedForcS)
+
+//-----------------------------------------------------------------------------}
+//Acceleration Forcast Calculation
+//-----------------------------------------------------------------------------{
+capForecastAc(fastEma, scaledForc, forecastAcScalar) =>
+    var float cappedForcAc  = na
+
+    forcAc                  = scaledForc - scaledForc[fastEma]
+    scaledForcAc            = forcAc * forecastAcScalar
+
+    if scaledForcAc <= lowerForeCap
+        cappedForcAc        := lowerForeCap
+    else if scaledForcAc > lowerForeCap and scaledForcAc < upperForeCap
+        cappedForcAc        := scaledForcAc
+    else if scaledForcAc >= upperForeCap
+        cappedForcAc        := upperForeCap
+
+cappedForcFAc               = capForecastAc(fastMoLength, scaledForcF, acFastScalar)
+cappedForcMAc               = capForecastAc(mediumMoLength, scaledForcM, acMediumScalar)
+cappedForcSAc               = capForecastAc(slowMoLength, scaledForcS, acSlowScalar)
+
+cappedForcAcAr              = array.from(cappedForcFAc, cappedForcMAc, cappedForcSAc)
+
+//-----------------------------------------------------------------------------}
+//Breakout Forcast Calculation
+//-----------------------------------------------------------------------------{
+capForecastBo(BreakLength, ForecastScalar) =>
+    var float cappedForcBo  = na
+
+    max                     = ta.highest(high, BreakLength)
+    min                     = ta.lowest(low, BreakLength)
+    mean                    = (max + min) / 2
+    BoForc                  = (40 * (close - mean)) /  (max - min)
+    smoothLength            = BreakLength / 4
+    smoothForcBo            = ta.ema(BoForc, smoothLength)
+    scaledForcBo            = smoothForcBo * ForecastScalar
+
+    if scaledForcBo <= lowerForeCap
+        cappedForcBo        := lowerForeCap
+    else if scaledForcBo > lowerForeCap and scaledForcBo < upperForeCap
+        cappedForcBo        := scaledForcBo
+    else if scaledForcBo >= upperForeCap
+        cappedForcBo        := upperForeCap 
+
+cappedForcBo20              = capForecastBo(20, bo20Scalar)
+cappedForcBo40              = capForecastBo(40, bo40Scalar)
+cappedForcBo80              = capForecastBo(80, bo80Scalar)
+
+cappedForcBoAr              = array.from(cappedForcBo20, cappedForcBo40, cappedForcBo80)
+
+//-----------------------------------------------------------------------------}
+//Carry Forcast Calculation
+//-----------------------------------------------------------------------------{
+capForecastCr(expectedDiv, smoothLength, instRisk, ForecastScalar) =>
+    var float cappedForcCr  = na
+
+    CrForc                  = expectedDiv * ForecastScalar / instRisk
+    scaledForcCr            = ta.ema(CrForc, smoothLength)
+
+    if scaledForcCr <= lowerForeCap
+        cappedForcCr        := lowerForeCap
+    else if scaledForcCr > lowerForeCap and scaledForcCr < upperForeCap
+        cappedForcCr        := scaledForcCr
+    else if scaledForcCr >= upperForeCap
+        cappedForcCr        := upperForeCap 
+
+cappedForcCr20              = capForecastCr(expectedDiv, 20, instRisk, crScalar)
+cappedForcCr60              = capForecastCr(expectedDiv, 60, instRisk, crScalar)
+cappedForcCr120             = capForecastCr(expectedDiv, 120, instRisk, crScalar)
+
+cappedForcCrAr              = array.from(cappedForcCr20, cappedForcCr60, cappedForcCr120)
+
+//All Forecast Combination
+//-----------------------------------------------------------------------------{
+cappedForcMo                = array.avg(cappedForcMoAr)
+cappedForcAc                = array.avg(cappedForcAcAr)
+cappedForcBo                = array.avg(cappedForcBoAr)
+cappedForcCr                = array.avg(cappedForcCrAr)
+
+//All Forecast Combination
+//-----------------------------------------------------------------------------{
+var float cappedCombForc    = na
+
+combForc                    = (cappedForcMo * moProp) + (cappedForcAc * acProp) + (cappedForcBo * boProp) + (cappedForcCr * crProp)
+scalCombForc                = combForc * forcastDiverMuliplier
+
+if scalCombForc <= lowerForeCap
+    cappedCombForc          := lowerForeCap
+else if scalCombForc > lowerForeCap and scalCombForc < upperForeCap
+    cappedCombForc          := scalCombForc
+else if scalCombForc >= upperForeCap
+    cappedCombForc          := upperForeCap 
+
+//Final Forecast Calculation
+//-----------------------------------------------------------------------------{
+percentCombForc             = cappedCombForc / 10
+
+var float capPerCombForc    = na
+
+if percentCombForc <= minForeCapped
+    capPerCombForc          := minForeCapped
+else if percentCombForc > minForeCapped and percentCombForc < maxForeCapped
+    capPerCombForc          := percentCombForc
+else if percentCombForc >= maxForeCapped
+    capPerCombForc          := maxForeCapped
+
+//Table Styling
+//-----------------------------------------------------------------------------{ 
+bgMColour                   = color.rgb(0, 0, 0, 30)
+bgSColour                   = color.rgb(0, 0, 0, 20)
+    
+if percentCombForc > 0
+    bgMColour               := color.rgb(8, 153, 129)
+    bgSColour               := color.rgb(8, 153, 129, 20)
+else
+    bgMColour               := color.rgb(242, 54, 69)
+    bgSColour               := color.rgb(242, 54, 69, 20)
+    
+//-----------------------------------------------------------------------------}
+//Performance Table
+//-----------------------------------------------------------------------------{ 
+table_data                  = table.new(position = position.top_right, columns = 1, rows = 3, bgcolor = color.rgb(0, 0, 0, 100), frame_width = 1, border_width = 1)
+
+table.cell(table_data, 0, 0, "FOR782", bgcolor = color.rgb(255, 255, 255, 70), text_size = size.normal, text_color = color.rgb(255, 255, 255))   
+table.cell(table_data, 0, 1, str.tostring(math.round(capPerCombForc, 2)), text_size = size.normal, bgcolor = bgMColour, text_color = color.rgb(255, 255, 255), text_halign  = text.align_center, tooltip = "Forecast")
+table.cell(table_data, 0, 2, str.tostring(math.round(instRisk * 100, 2), format.percent), text_size = size.normal, bgcolor = bgSColour, text_color = color.rgb(255, 255, 255), text_halign  = text.align_center, tooltip = "Standard Deviation")
+
+//-----------------------------------------------------------------------------}
+//Bar & Trend Line Colours
+//-----------------------------------------------------------------------------{
+neutralColor                = #56328f
+strongbullColor             = color.rgb(8, 153, 129)
+bullColor                   = color.rgb(8, 153, 129, 50)
+strongBearishColor          = color.rgb(242, 54, 69)
+bearColor                   = color.rgb(242, 54, 69, 50)
+
+//-----------------------------------------------------------------------------}
+//Momentum Filter Calculation
+//-----------------------------------------------------------------------------{
+strongBullish               = percentCombForc > 0 and percentCombForc >= 0.5
+strongBearish               = percentCombForc < 0 and percentCombForc <= -0.5
+bullish                     = percentCombForc > 0 and percentCombForc < 0.5
+bearish                     = percentCombForc < 0 and percentCombForc > -0.5
+
+//Bar Colour
+//-----------------------------------------------------------------------------{
+barcolor(strongBullish ? strongbullColor : strongBearish ? strongBearishColor : bullish ? bullColor : bearish ? bearColor : neutralColor)
